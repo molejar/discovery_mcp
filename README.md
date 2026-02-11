@@ -107,6 +107,22 @@ For SSE mode, point your client to `http://localhost:8080/sse`.
 
 ### Device
 
+#### `discovery_enumerate`
+
+List all connected Digilent devices and their serial numbers/IDs. No parameters.
+
+**Returns:** List of available devices with their index and status.
+
+#### `discovery_device_get_configs`
+
+List available hardware configurations for a specific device index.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `device_index` | number | **Yes** | Device index from enumeration |
+
+**Returns:** List of configurations with channel counts and buffer sizes.
+
 #### `discovery_device_open`
 
 Open a connection to a Digilent DWF device. Must be called before using any instrument.
@@ -464,6 +480,11 @@ Initialize I2C communication.
 | `scl` | number | **Yes** | — | DIO line for clock |
 | `clock_rate` | number | No | 100 kHz | Clock rate in Hz |
 | `stretching` | boolean | No | false | Enable clock stretching |
+
+#### `discovery_i2c_scan`
+Scan the I2C bus for connected devices (probes addresses 0x08–0x77). No parameters.
+
+**Returns:** List of found 7-bit addresses.
 
 #### `discovery_i2c_read`
 

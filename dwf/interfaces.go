@@ -2,6 +2,14 @@ package dwf
 
 // DeviceController manages device lifecycle and info.
 type DeviceController interface {
+	// EnumDevices discovers all connected Digilent devices and returns their info.
+	// This does not open any device — it only enumerates what is available.
+	EnumDevices() ([]EnumDevice, error)
+
+	// EnumConfigs returns the available hardware configurations for the device at
+	// the given index. Call this after dwfEnum but before Open.
+	EnumConfigs(deviceIndex int) ([]DeviceConfig, error)
+
 	// Open connects to a Digilent device.
 	// device can be "" (first available), "Analog Discovery 2", "Digital Discovery", etc.
 	// config selects the device configuration index (0 for default).
@@ -164,6 +172,9 @@ type SPI interface {
 type I2C interface {
 	// Open initializes I2C communication.
 	Open(cfg I2CConfig) error
+
+	// Scan probes all 7-bit addresses (0x08–0x77) and returns those that ACK.
+	Scan() ([]int, error)
 
 	// Read receives count bytes from the given 7-bit address.
 	Read(count int, address int) ([]byte, error)

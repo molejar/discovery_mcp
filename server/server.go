@@ -49,6 +49,15 @@ func (s *DiscoveryMCPServer) DeviceInstance() dwf.DiscoveryDevice {
 
 func (s *DiscoveryMCPServer) registerTools() {
 	// ---- Device ----
+	s.mcpServer.AddTool(mcp.NewTool("discovery_enumerate",
+		mcp.WithDescription("Enumerate all connected Digilent Discovery devices without opening them"),
+	), s.handleEnumerate)
+
+	s.mcpServer.AddTool(mcp.NewTool("discovery_device_get_configs",
+		mcp.WithDescription("List available hardware configurations for a device without opening it"),
+		mcp.WithNumber("device_index", mcp.Description("Device index from enumeration"), mcp.Required()),
+	), s.handleDeviceGetConfigs)
+
 	s.mcpServer.AddTool(mcp.NewTool("discovery_device_open",
 		mcp.WithDescription("Open a connection to a Digilent Discovery device"),
 		mcp.WithString("device", mcp.Description("Device name (empty for first available): 'Analog Discovery 2', 'Digital Discovery', etc.")),
@@ -296,6 +305,10 @@ func (s *DiscoveryMCPServer) registerTools() {
 		mcp.WithNumber("clock_rate", mcp.Description("Clock rate in Hz (default 100kHz)")),
 		mcp.WithBoolean("stretching", mcp.Description("Enable clock stretching")),
 	), s.handleI2COpen)
+
+	s.mcpServer.AddTool(mcp.NewTool("discovery_i2c_scan",
+		mcp.WithDescription("Scan the I2C bus for connected devices (probes addresses 0x08-0x77)"),
+	), s.handleI2CScan)
 
 	s.mcpServer.AddTool(mcp.NewTool("discovery_i2c_read",
 		mcp.WithDescription("Read data from I2C"),

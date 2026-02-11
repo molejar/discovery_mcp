@@ -185,6 +185,8 @@ func (m *mockSPI) Close() error { return m.closeErr }
 type mockI2C struct {
 	openCfg      dwf.I2CConfig
 	openErr      error
+	scanData     []int
+	scanErr      error
 	readData     []byte
 	readErr      error
 	writeErr     error
@@ -194,6 +196,7 @@ type mockI2C struct {
 }
 
 func (m *mockI2C) Open(cfg dwf.I2CConfig) error                { m.openCfg = cfg; return m.openErr }
+func (m *mockI2C) Scan() ([]int, error)                        { return m.scanData, m.scanErr }
 func (m *mockI2C) Read(count int, address int) ([]byte, error) { return m.readData, m.readErr }
 func (m *mockI2C) Write(data []byte, address int) error        { return m.writeErr }
 func (m *mockI2C) Exchange(txData []byte, rxCount int, address int) ([]byte, error) {
@@ -203,23 +206,33 @@ func (m *mockI2C) Close() error { return m.closeErr }
 
 // mockDevice implements dwf.DiscoveryDevice, aggregating all mock instruments.
 type mockDevice struct {
-	openInfo    *dwf.DeviceInfo
-	openErr     error
-	closeErr    error
-	temperature float64
-	tempErr     error
-	scope       *mockScope
-	wavegen     *mockWavegen
-	supply      *mockSupply
-	dmm         *mockDMM
-	logic       *mockLogic
-	pattern     *mockPattern
-	staticIO    *mockStaticIO
-	uart        *mockUART
-	spi         *mockSPI
-	i2c         *mockI2C
+	enumDevices    []dwf.EnumDevice
+	enumDevicesErr error
+	enumConfigs    []dwf.DeviceConfig
+	enumConfigsErr error
+	openInfo       *dwf.DeviceInfo
+	openErr        error
+	closeErr       error
+	temperature    float64
+	tempErr        error
+	scope          *mockScope
+	wavegen        *mockWavegen
+	supply         *mockSupply
+	dmm            *mockDMM
+	logic          *mockLogic
+	pattern        *mockPattern
+	staticIO       *mockStaticIO
+	uart           *mockUART
+	spi            *mockSPI
+	i2c            *mockI2C
 }
 
+func (d *mockDevice) EnumDevices() ([]dwf.EnumDevice, error) {
+	return d.enumDevices, d.enumDevicesErr
+}
+func (d *mockDevice) EnumConfigs(deviceIndex int) ([]dwf.DeviceConfig, error) {
+	return d.enumConfigs, d.enumConfigsErr
+}
 func (d *mockDevice) Open(device string, config int) (*dwf.DeviceInfo, error) {
 	return d.openInfo, d.openErr
 }
@@ -385,6 +398,84 @@ func TestNewWithDevice(t *testing.T) {
 }
 
 // ============================= Device Handlers =============================
+
+func TestHandleEnumerate(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		s, dev := newTestServer()
+		dev.enumDevices = []dwf.EnumDevice{
+			{Index: 0, DeviceName: "Analog Discovery 2", SerialNumber: "SN123", IsOpened: false},
+			{Index: 1, DeviceName: "Digital Discovery", SerialNumber: "SN456", IsOpened: true},
+		}
+		result, err := s.handleEnumerate(context.Background(), makeReq(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		text := result.Content[0].(mcp.TextContent).Text
+		if !strings.Contains(text, "Analog Discovery 2") {
+			t.Errorf("expected device name in result, got %q", text)
+		}
+		if !strings.Contains(text, "Digital Discovery") {
+			t.Errorf("expected second device in result, got %q", text)
+		}
+	})
+
+	t.Run("no devices", func(t *testing.T) {
+		s, _ := newTestServer()
+		result, err := s.handleEnumerate(context.Background(), makeReq(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		text := result.Content[0].(mcp.TextContent).Text
+		if text != "null" {
+			t.Errorf("expected 'null' for empty list, got %q", text)
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		s, dev := newTestServer()
+		dev.enumDevicesErr = errors.New("enum failed")
+		result, err := s.handleEnumerate(context.Background(), makeReq(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Error("expected error result")
+		}
+	})
+}
+
+func TestHandleDeviceGetConfigs(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		s, dev := newTestServer()
+		dev.enumConfigs = []dwf.DeviceConfig{
+			{AnalogInChannels: 2, DigitalInChannels: 16},
+			{AnalogInChannels: 4, DigitalInChannels: 8},
+		}
+		result, err := s.handleDeviceGetConfigs(context.Background(), makeReq(map[string]any{"device_index": 0}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		text := result.Content[0].(mcp.TextContent).Text
+		if !strings.Contains(text, `"AnalogInChannels":2`) {
+			t.Errorf("expected 2 analog channels, got %q", text)
+		}
+		if !strings.Contains(text, `"AnalogInChannels":4`) {
+			t.Errorf("expected 4 analog channels, got %q", text)
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		s, dev := newTestServer()
+		dev.enumConfigsErr = errors.New("enum config failed")
+		result, err := s.handleDeviceGetConfigs(context.Background(), makeReq(map[string]any{"device_index": 0}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Error("expected error result")
+		}
+	})
+}
 
 func TestHandleDeviceOpen(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
@@ -1049,6 +1140,51 @@ func TestHandleI2COpen(t *testing.T) {
 	if !strings.Contains(text, "initialized") {
 		t.Errorf("expected 'initialized', got %q", text)
 	}
+}
+
+func TestHandleI2CScan(t *testing.T) {
+	t.Run("found devices", func(t *testing.T) {
+		s, dev := newTestServer()
+		dev.i2c.scanData = []int{0x20, 0x50, 0x68}
+		result, err := s.handleI2CScan(context.Background(), makeReq(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		text := result.Content[0].(mcp.TextContent).Text
+		if !strings.Contains(text, "0x20") {
+			t.Errorf("expected '0x20' in result, got %q", text)
+		}
+		if !strings.Contains(text, "0x50") {
+			t.Errorf("expected '0x50' in result, got %q", text)
+		}
+		if !strings.Contains(text, `"count":3`) {
+			t.Errorf("expected count 3, got %q", text)
+		}
+	})
+
+	t.Run("no devices", func(t *testing.T) {
+		s, _ := newTestServer()
+		result, err := s.handleI2CScan(context.Background(), makeReq(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		text := result.Content[0].(mcp.TextContent).Text
+		if !strings.Contains(text, `"count":0`) {
+			t.Errorf("expected count 0, got %q", text)
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		s, dev := newTestServer()
+		dev.i2c.scanErr = errors.New("scan failed")
+		result, err := s.handleI2CScan(context.Background(), makeReq(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Error("expected error result")
+		}
+	})
 }
 
 func TestHandleI2CRead(t *testing.T) {

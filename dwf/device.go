@@ -1139,6 +1139,21 @@ func (ic *i2cImpl) Open(cfg I2CConfig) error {
 	return nil
 }
 
+func (ic *i2cImpl) Scan() ([]int, error) {
+	h := ic.dev.handle
+	var found []int
+	for addr := 0x08; addr <= 0x77; addr++ {
+		nak, err := dwfDigitalI2cWrite(h, cInt(addr<<1), nil)
+		if err != nil {
+			return nil, err
+		}
+		if nak == 0 {
+			found = append(found, addr)
+		}
+	}
+	return found, nil
+}
+
 func (ic *i2cImpl) Read(count int, address int) ([]byte, error) {
 	h := ic.dev.handle
 	buf := make([]byte, count)

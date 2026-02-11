@@ -62,6 +62,23 @@ func errResult(err error) *mcp.CallToolResult {
 
 // ==================== Device Handlers ====================
 
+func (s *DiscoveryMCPServer) handleEnumerate(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	devices, err := s.device.EnumDevices()
+	if err != nil {
+		return errResult(err), nil
+	}
+	return jsonResult(devices), nil
+}
+
+func (s *DiscoveryMCPServer) handleDeviceGetConfigs(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	idx := getInt(req.Params.Arguments, "device_index", 0)
+	configs, err := s.device.EnumConfigs(idx)
+	if err != nil {
+		return errResult(err), nil
+	}
+	return jsonResult(configs), nil
+}
+
 func (s *DiscoveryMCPServer) handleDeviceOpen(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	device := getString(req.Params.Arguments, "device", "")
 	config := getInt(req.Params.Arguments, "config", 0)
@@ -496,6 +513,21 @@ func (s *DiscoveryMCPServer) handleI2COpen(_ context.Context, req mcp.CallToolRe
 	return mcp.NewToolResultText("I2C initialized"), nil
 }
 
+func (s *DiscoveryMCPServer) handleI2CScan(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	addresses, err := s.device.I2CProtocol().Scan()
+	if err != nil {
+		return errResult(err), nil
+	}
+	hexAddrs := make([]string, len(addresses))
+	for i, addr := range addresses {
+		hexAddrs[i] = fmt.Sprintf("0x%02X", addr)
+	}
+	return jsonResult(map[string]any{
+		"count":     len(addresses),
+		"addresses": hexAddrs,
+	}), nil
+}
+
 func (s *DiscoveryMCPServer) handleI2CRead(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	count := getInt(req.Params.Arguments, "count", 1)
 	addr := getInt(req.Params.Arguments, "address", 0)
@@ -503,7 +535,7 @@ func (s *DiscoveryMCPServer) handleI2CRead(_ context.Context, req mcp.CallToolRe
 	if err != nil {
 		return errResult(err), nil
 	}
-	return jsonResult(map[string]interface{}{
+	return jsonResult(map[string]any{
 		"address": fmt.Sprintf("0x%02X", addr),
 		"bytes":   len(data),
 		"data":    fmt.Sprintf("%x", data),
